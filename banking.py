@@ -1,47 +1,66 @@
+'''SVIST Bank of India - ATM Application
+Overview
+The SVIST Bank of India ATM application is a simple command-line interface (CLI) banking system that allows users
+to create accounts, log in, view their balances, deposit, withdraw funds, and close their accounts.
+The application uses MongoDB for data storage,
+making it robust and capable of managing multiple user accounts securely.
+->Create Account: Admin can create a new customer account with a unique customer ID, name, age, and address. The initial balance is set to 0.
+->Login: Customers can log in using their name and customer ID.
+->Show Balance: Customers can view their account balance.
+->Deposit: Customers can deposit a specified amount into their account.
+->Withdraw: Customers can withdraw a specified amount from their account if sufficient funds are available.
+->Block/Delete Account: Customers can permanently delete their accounts.
+->Exit: Customers can exit the application after performing an action.
+'''
+import pymongo
+
+# Connect to MongoDB
+client = pymongo.MongoClient("mongodb://localhost:27017/")  # Replace with your MongoDB connection string
+db = client["svist_bank"]
+collection = db["customers"]
+
 print("Welcome to SVIST Bank of India")
 
-import openpyxl
-
 def add_customer():
-    customer_id = input("Enter customer ID: ")
-    name = input("Enter customer name: ")
-    age = input("Enter customer age: ")
-    address = input("Enter customer address: ")
-    balance = 0.0  # Initialize balance to 0.0
+    pas=input("ENTER ADMIN CODE TO CREATE ACCOUNT")
+    if pas=="saireddy":
+        customer_id = input("Enter customer ID: ")
+        name = input("Enter customer name: ")
+        age = input("Enter customer age: ")
+        address = input("Enter customer address: ")
+        balance = 0.0  # Initialize balance to 0.0
 
-    try:
-        workbook = openpyxl.load_workbook("customer.xlsx")
-        sheet = workbook.active
-        for row in sheet.iter_rows(values_only=True):
-            if row[0] == customer_id or row[1] == name:
-                print("Customer already exists. Try another way.")
-                return
-    except FileNotFoundError:
-        workbook = openpyxl.Workbook()
-        sheet = workbook.active
-        sheet.append(["Customer ID", "Customer Name", "Customer Age", "Address", "Balance"])
+        # Check if the customer already exists in MongoDB
+        if collection.find_one({"$or": [{"customer_id": customer_id}, {"name": name}]}):
+            print("Customer already exists. Try another way.")
+            return
 
-    sheet.append([customer_id, name, age, address, balance])
-    workbook.save("customer.xlsx")
-    print("Account created successfully")
+        # Insert the new customer into the collection
+        customer = {
+            "customer_id": customer_id,
+            "name": name,
+            "age": age,
+            "address": address,
+            "balance": balance
+        }
+        collection.insert_one(customer)
+        print("Account created successfully")
+        return
+    else:
+        print("invalid login")
 
 def login():
     name = input("Enter your name: ")
     customer_id = input("Enter your ID: ")
 
-    try:
-        workbook = openpyxl.load_workbook("customer.xlsx")
-        sheet = workbook.active
-
-        for row in sheet.iter_rows(values_only=False):
-            if row[1].value == name and row[0].value == customer_id:
-                print("Login successful!")
-                balance = row[4].value if len(row) > 4 else 0.0
-                return balance, row, workbook
+    # Find the customer in MongoDB
+    customer = collection.find_one({"name": name, "customer_id": customer_id})
+    if customer:
+        print("Login successful!")
+        return customer
+    else:
         print("Login failed :(")
-    except FileNotFoundError:
-        print("No customer records found. Please sign up.")
-    return None, None, None
+    return None
 
 def show_balance(balance):
     print(f"Your balance is ${balance:.2f}")
@@ -65,30 +84,24 @@ def withdraw(balance):
     else:
         return amount
 
-def update_balance(row, new_balance, workbook):
-    row[4].value = new_balance
-    workbook.save("customer.xlsx")
+def update_balance(customer, new_balance):
+    collection.update_one(
+        {"customer_id": customer["customer_id"], "name": customer["name"]},
+        {"$set": {"balance": new_balance}}
+    )
+    print("Balance updated successfully")
 
-def delete_account(name, customer_id):
-    try:
-        workbook = openpyxl.load_workbook("customer.xlsx")
-        sheet = workbook.active
-
-        for i, row in enumerate(sheet.iter_rows(values_only=False)):
-            if row[1].value == name and row[0].value == customer_id:
-                sheet.delete_rows(i + 1)
-                workbook.save("customer.xlsx")
-                print("Account blocked (deleted) successfully!")
-                return True
-
+def delete_account(customer):
+    result = collection.delete_one({"customer_id": customer["customer_id"], "name": customer["name"]})
+    if result.deleted_count > 0:
+        print("Account blocked (deleted) successfully!")
+    else:
         print("Customer not found.")
-        return False
-    except FileNotFoundError:
-        print("No customer records found.")
-        return False
 
-def main(balance, row, workbook):
+def main(customer):
+    balance = customer["balance"]
     is_running = True
+
     while is_running:
         print("******************")
         print("\n1. Show Balance")
@@ -108,14 +121,14 @@ def main(balance, row, workbook):
             show_balance(balance)
         elif choice == "2":
             balance += deposit()
-            update_balance(row, balance, workbook)
+            update_balance(customer, balance)
         elif choice == "3":
             balance -= withdraw(balance)
-            update_balance(row, balance, workbook)
+            update_balance(customer, balance)
         elif choice == "4":
             confirmation = input("Do you want to delete your account permanently? (Yes/No): ").lower()
             if confirmation == "yes":
-                delete_account(row[1].value, row[0].value)
+                delete_account(customer)
                 break
             elif confirmation == "no":
                 continue
@@ -134,8 +147,8 @@ login_signup = input("1. Create account:\n2. Login account:\n")
 if login_signup == "1":
     add_customer()
 elif login_signup == "2":
-    balance, row, workbook = login()
-    if balance is not None and row is not None:
-        main(balance, row, workbook)
+    customer = login()
+    if customer:
+        main(customer)
 else:
     print("Invalid choice.")
